@@ -28,17 +28,9 @@ print_error() {
 }
 
 # $1 = TestClass#method
-# $2: boolean = isRepackaged
+# $2 = component
 am_instrument() {
-  local test_pkg
-  if [ -n "$2" -a "$2" ]; then
-    test_pkg="repackaged.com.topjohnwu.magisk.test"
-  else
-    test_pkg=com.topjohnwu.magisk.test
-  fi
-  local out=$(adb shell am instrument -w --user 0 \
-    -e class "com.topjohnwu.magisk.test.$1" \
-    "$test_pkg/com.topjohnwu.magisk.test.TestRunner")
+  local out=$(adb shell am instrument -w --user 0 -e class "$1" "$2")
   grep -q 'OK (' <<< "$out"
 }
 
@@ -56,37 +48,32 @@ run_setup() {
   adb install -r -g out/app-${variant}.apk
 
   # Install the test app
-  adb install -r -g out/test-${variant}.apk
+  adb install -r -g out/test.apk
+
+  local app='com.topjohnwu.magisk.test/com.topjohnwu.magisk.test.AppTestRunner'
 
   # Run setup through the test app
-  am_instrument 'Environment#setupMagisk'
+  am_instrument '.Environment#setupEnvironment' $app
 }
 
 run_tests() {
-  # Run app tests
-  am_instrument 'MagiskAppTest'
+  local pkg='com.topjohnwu.magisk.test'
+  local self="$pkg/$pkg.TestRunner"
+  local app="$pkg/$pkg.AppTestRunner"
+  local stub="repackaged.$pkg/$pkg.AppTestRunner"
 
-  # Test shell su request
-  am_instrument 'Environment#setupShellGrantTest'
-  adb shell /system/xbin/su 2000 su -c id | tee /dev/fd/2 | grep -q 'uid=0'
-  adb shell am force-stop com.topjohnwu.magisk
+  # Run app tests
+  am_instrument '.MagiskAppTest,.AdditionalTest' $app
 
   # Test app hiding
-  am_instrument 'Environment#setupAppHide'
-  wait_for_pm com.topjohnwu.magisk
+  am_instrument '.AppMigrationTest#testAppHide' $self
 
   # Make sure it still works
-  am_instrument 'MagiskAppTest' true
-
-  # Test shell su request
-  am_instrument 'Environment#setupShellGrantTest' true
-  adb shell /system/xbin/su 2000 su -c id | tee /dev/fd/2 | grep -q 'uid=0'
-  adb shell am force-stop repackaged.com.topjohnwu.magisk
+  am_instrument '.MagiskAppTest' $stub
 
   # Test app restore
-  am_instrument 'Environment#setupAppRestore' true
-  wait_for_pm repackaged.com.topjohnwu.magisk
+  am_instrument '.AppMigrationTest#testAppRestore' $self
 
   # Make sure it still works
-  am_instrument 'MagiskAppTest'
+  am_instrument '.MagiskAppTest' $app
 }
